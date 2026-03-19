@@ -1,36 +1,43 @@
 import pandas as pd
-from qdrant_client import QdrantClient, models
+from pathlib import Path
+from rag_config import RAGConfig
+from qdrant_client import models
 from qdrant_client.http.models import Distance, VectorParams
 
-def store_embeddings(config, prefix_list):
-
-    # split the prefix and last values from the prediction
-    texts = []
-    predictions = []
-
-    for prefix in prefix_list:
-        parts = prefix.rsplit(" - ", 1)
-        if len(parts) != 2:
-            continue
-        texts.append(parts[0].strip()) 
-        predictions.append(parts[1].strip())
+def store_embeddings(
+    config: RAGConfig,
+) -> None:
     
-    embeddings = config.encode(texts)
+    csv_prefixes = config.dataset
+
+    df = pd.read_csv(csv_prefixes)
+    prefixes = df["prefix"].tolist()
+    predictions = df["prediction"].tolist()
+    
+    embeddings = config.encode(prefixes)
 
     points = [
         models.PointStruct(
             id=i,
             vector=embeddings[i].tolist(),
-            payload={"prefix": texts[i], "prediction": predictions[i]},
+            payload={"prefix": prefixes[i], "prediction": predictions[i]},
         )
-        for i in range(len(texts))
+        for i in range(len(prefixes))
     ]
 
-    config.client.upsert(collection_name=config.collection_name, points=points)
+    config.client.upsert(
+        collection_name=config.collection_name, 
+        points=points
+        )
     return 
 
 
-def retrieve_similar_prefixes(config, query_full_prefix, top_k: int = 5):
+def retrieve_similar_prefixes(
+    config: RAGConfig, 
+    query_full_prefix: str, 
+    top_k: int = 5
+) -> tuple[dict, list]:
+    
     qvec = config.encode([query_full_prefix])[0].tolist()
 
     res = config.client.query_points(

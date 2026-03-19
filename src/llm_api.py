@@ -50,4 +50,4 @@ def api_call(past_traces: dict, prefix: str):
         reasoning={"effort": "medium"},
     )
     print("waiting...")
-    return response
+    return response.output_text
