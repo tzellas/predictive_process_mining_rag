@@ -1,6 +1,7 @@
 import pandas as pd
 import pm4py
 import csv
+import random
 from pathlib import Path
 
 def read_clean_log(
@@ -32,7 +33,10 @@ def read_clean_log(
     
     return df_log
 
-def keep_last_m_values(activity_prefix: str, m: int) -> str:
+def keep_last_m_values(
+    activity_prefix: str, 
+    m: int
+) -> str:
     token = " - Values: {"
     spans = []
     pos = 0
@@ -174,7 +178,8 @@ def convert_to_csv(
     rows = []
     for row in prefix_list:
         left, right = row.split(" - Values: ", 1)
-        values_part, prediction = right.rsplit(" - ", 1)
+        values_part, prediction = right.rsplit("} - ", 1)
+        values_part = values_part + "}"
         rows.append((f"{left} - Values: {values_part}".strip(), prediction.strip()))
         
     with open(output_path, open_mode, newline="", encoding="utf-8") as f:
@@ -190,12 +195,6 @@ def generate_test_set(
 ) -> None:
     
     csv_prefixes = Path(csv_prefixes)
-    df = pd.read_csv(csv_prefixes)
-    test_set_size = int(len(df) * test_set_proportion)
-    
-    test_df = df.sample(n=test_set_size, random_state=42)
-    train_df = df.drop(test_df.index)
-    
     test_csv_prefixes = (
             Path(__file__).resolve().parent.parent
             / "data" 
@@ -203,9 +202,64 @@ def generate_test_set(
             / csv_prefixes.name
     )
     test_csv_prefixes.parent.mkdir(parents=True, exist_ok=True)
-    
-    test_df.to_csv(test_csv_prefixes, index=False)
-    train_df.to_csv(csv_prefixes, index=False)
+
+    csv_size_mb = csv_prefixes.stat().st_size / (1024 * 1024)
+
+    if csv_size_mb <= 100:
+        df = pd.read_csv(csv_prefixes)
+        test_set_size = int(len(df) * test_set_proportion)
+
+        test_df = df.sample(n=test_set_size, random_state=42)
+        train_df = df.drop(test_df.index)
+
+        test_df.to_csv(test_csv_prefixes, index=False)
+        train_df.to_csv(csv_prefixes, index=False)
+        return
+
+    chunk_count = int(csv_size_mb // 100) + 1
+    print(
+        f"CSV size is {csv_size_mb:.3f} mb. "
+        f"Using streaming split in {chunk_count} chunks."
+    )
+
+    with open(csv_prefixes, newline="", encoding="utf-8") as f:
+        total_rows = sum(1 for _ in csv.DictReader(f))
+
+    test_set_size = int(total_rows * test_set_proportion)
+    rng = random.Random(42)
+    test_indices = set(rng.sample(range(total_rows), test_set_size))
+
+    temp_train_csv = csv_prefixes.with_suffix(".train_tmp.csv")
+
+    with open(csv_prefixes, newline="", encoding="utf-8") as src, \
+        open(temp_train_csv, "w", newline="", encoding="utf-8") as train_out, \
+        open(test_csv_prefixes, "w", newline="", encoding="utf-8") as test_out:
+
+        reader = csv.DictReader(src)
+        fieldnames = reader.fieldnames
+
+        train_writer = csv.DictWriter(train_out, fieldnames=fieldnames)
+        test_writer = csv.DictWriter(test_out, fieldnames=fieldnames)
+
+        train_writer.writeheader()
+        test_writer.writeheader()
+
+        rows_per_chunk = max(1, total_rows // chunk_count)
+
+        for row_index, row in enumerate(reader):
+            if row_index in test_indices:
+                test_writer.writerow(row)
+            else:
+                train_writer.writerow(row)
+
+            if (row_index + 1) % rows_per_chunk == 0 or (row_index + 1) == total_rows:
+                current_chunk = min(chunk_count, ((row_index + 1) - 1) // rows_per_chunk + 1)
+                print(
+                    f"Streaming split progress: chunk {current_chunk}/{chunk_count} "
+                    f"({row_index + 1}/{total_rows} rows)"
+                )
+
+    temp_train_csv.replace(csv_prefixes)
 
 
 def process_log(
