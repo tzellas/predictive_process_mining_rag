@@ -1,6 +1,9 @@
 pandas==3.0.1
 pm4py==2.7.19.8
-sentence-transformers==5.2.2
+sentence-transformers==2.7.0
+transformers==4.39.3
+huggingface-hub==0.23.0
 qdrant-client==1.16.2
 python-dotenv==1.2.1
 openai==2.21.0
+rustxes==0.2.11

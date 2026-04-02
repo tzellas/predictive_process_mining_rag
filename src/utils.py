@@ -76,7 +76,6 @@ def execution_report(
     total_wall_start = time.perf_counter()
     total_cpu_start = time.process_time()
     report = {
-        "config": variant_config,
         "dataset_count": len(datasets),
         "datasets": {},
     }

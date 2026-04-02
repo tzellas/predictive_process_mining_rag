@@ -95,15 +95,16 @@ def build_prefixes(
         
     if seen_prefixes is None:
         seen_prefixes = set()
-    prefixes = []
+    prefixes: list[tuple[str, str]] = []
     j_map = {}
 
     # iterate through events of a single trace
     for _, df_trace in df_log.groupby(trace_identifier, sort=False):
 
         df_trace = df_trace.sort_values(["time:timestamp"]).reset_index(drop=True)
+        records = df_trace.to_dict("records")
 
-        if len(df_trace) <= 2:
+        if len(records) <= 2:
             continue
         
         activity_prefix = ""
@@ -111,7 +112,7 @@ def build_prefixes(
         values = {}
 
         # keep only indexes that match the selected bucketing
-        for i in range(base, len(df_trace)-1, gap):
+        for i in range(base, len(records)-1, gap):
 
             if i == base:
                 start = 0
@@ -121,7 +122,7 @@ def build_prefixes(
             # process events from last to next gap
             for event_index in range(start, i+1):
                 
-                event = df_trace.iloc[event_index]
+                event = records[event_index]
 
                 for key, value in event.items():
         
@@ -157,10 +158,15 @@ def build_prefixes(
             
 
             if not is_bpic_2013:
-                final_prefix_string = f"{activity_prefix} - {df_trace.iloc[i+1]['concept:name']}"
+                prediction = f"{records[i+1]['concept:name']}"
             else:
-                final_prefix_string = f"{activity_prefix} - {df_trace.iloc[i+1]['concept:name']}+{df_trace.iloc[i+1]['lifecycle:transition']}+{df_trace.iloc[i+1]['org:resource']}+{df_trace.iloc[i+1]['org:role']}"
-            prefixes.append(final_prefix_string)
+                prediction = (
+                    f"{records[i+1]['concept:name']}+"
+                    f"{records[i+1]['lifecycle:transition']}+"
+                    f"{records[i+1]['org:resource']}+"
+                    f"{records[i+1]['org:role']}"
+                )
+            prefixes.append((activity_prefix, prediction))
 
     if prefixes:
         open_mode = "a" if Path(output_path).exists() else "w"
@@ -170,23 +176,16 @@ def build_prefixes(
 
 
 def convert_to_csv(
-    prefix_list: list[str], 
+    prefix_list: list[tuple[str, str]], 
     output_path: str | Path, 
     open_mode: str = "w"
 ) -> None:
-    
-    rows = []
-    for row in prefix_list:
-        left, right = row.split(" - Values: ", 1)
-        values_part, prediction = right.rsplit("} - ", 1)
-        values_part = values_part + "}"
-        rows.append((f"{left} - Values: {values_part}".strip(), prediction.strip()))
-        
+
     with open(output_path, open_mode, newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             if open_mode == "w":
                 w.writerow(["prefix", "prediction"])
-            w.writerows(rows)
+            w.writerows(prefix_list)
 
 
 def generate_test_set(

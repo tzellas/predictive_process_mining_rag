@@ -1,14 +1,13 @@
 import re
 from llm_api import api_call
 from event_log_preprocessing import *
-from rag_config import *
-from vector_api import *
+from retrieval import *
 from pathlib import Path
 from utils import execution_report
 
 def main():
     base = 1
-    gap = 1
+    gap = 3
     m = 5
     datasets_xes = [
         "/home/apost/projects/Diplomatiki/data/xes_logs/BPI_Challenge_2012.xes",
@@ -19,7 +18,7 @@ def main():
         "/home/apost/projects/Diplomatiki/data/xes_logs/Sepsis.xes",
         "/home/apost/projects/Diplomatiki/data/xes_logs/HospitalBilling.xes",
         "/home/apost/projects/Diplomatiki/data/xes_logs/BPI_Challenge_2017.xes"
-  ]
+    ]
     collections = [
         # "sentence-transformers_all-MiniLM-L12-v2_b1_g3_BPI_Challenge_2020_InternationalDeclarations",
         "sentence-transformers_all-MiniLM-L12-v2_b1_g3_BPI_Challenge_2017",
@@ -31,20 +30,20 @@ def main():
         # "sentence-transformers_all-MiniLM-L12-v2_b1_g3_HospitalBilling"
     ]
     
-    report = execution_report(
-        datasets=datasets_xes,
-        run_fn=lambda dataset: process_log(dataset_xes=dataset, base=base, gap=gap, m=m),
-        base=base,
-        gap=gap,
-        m=m,
-        report_path="/home/apost/projects/Diplomatiki/data/run_reports.json",
-    )
+    # report = execution_report(
+    #     datasets=datasets_xes,
+    #     run_fn=lambda dataset: process_log(dataset_xes=dataset, base=base, gap=gap, m=m),
+    #     base=base,
+    #     gap=gap,
+    #     m=m,
+    #     report_path="/home/apost/projects/Diplomatiki/data/run_reports.json",
+    # )
     # retrieval_csv_sets = Path("/home/apost/projects/Diplomatiki/data/retrieval_csv_prefixes")
     
-    # config = RAGConfig(dataset="/home/apost/projects/Diplomatiki/data/retrieval_csv_prefixes/b1_g3_BPI_Challenge_2012.csv", model_id="sentence-transformers/all-MiniLM-L12-v2")
-    # for dataset in retrieval_csv_sets.iterdir():
-    #     config.dataset=dataset
-    #     config.store_embeddings()
+    config = Retrieval(dataset="/home/apost/projects/Diplomatiki/data/retrieval_csv_prefixes/last_3_b1_g3_BPI_Challenge_2013_ClosedProblems.csv", 
+                       model_id="snowflake")
+
+    config.store_embeddings()
         
     # test_df = pd.read_csv(config.test_set)
     # random_row = test_df.sample(n=1)
