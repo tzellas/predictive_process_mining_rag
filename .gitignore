@@ -5,3 +5,4 @@ qdrant_data/
 data/
 .env
 sources_and_relevant_content/
+ppm_venv_linux/

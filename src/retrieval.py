@@ -1,31 +1,14 @@
 import os
+import time
 import pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
 import torch
 from sentence_transformers import SentenceTransformer
-from transformers import AutoModel, AutoTokenizer
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.models import Distance, VectorParams
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 load_dotenv()
-
-
-def _available_memory_gib() -> float | None:
-    meminfo = Path("/proc/meminfo")
-    if not meminfo.exists():
-        return None
-
-    available_kib = None
-    with meminfo.open("r", encoding="ascii") as handle:
-        for line in handle:
-            if line.startswith("MemAvailable:"):
-                available_kib = int(line.split()[1])
-                break
-
-    if available_kib is None:
-        return None
-
-    return available_kib / (1024 ** 2)
 
 class Retrieval:
     """
@@ -37,52 +20,52 @@ class Retrieval:
                 self, 
                 model_id: str = None, 
                 dataset: str = None,
+                test_set: str = None,
+                reranker_model_id: str | None = None,
+                rerank_pool_k: int | None = None,
             ):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.client = QdrantClient(host="localhost",
-                                    grpc_port=int(os.getenv("QDRANT_GRPC_PORT")),
-                                    prefer_grpc=True,
+                                   grpc_port=int(os.getenv("QDRANT_GRPC_PORT")),
+                                   prefer_grpc=True,
+                                   timeout=60,
                                 )
         
         embedding_models = {
             "minilm": "sentence-transformers/all-MiniLM-L12-v2",
-            "snowflake": "Snowflake/snowflake-arctic-embed-m-v2.0",
+            "bge": "BAAI/bge-small-en-v1.5",
+        }
+        reranker_models = {
+            "bge": "BAAI/bge-reranker-base",
         }
 
         if model_id not in embedding_models:
             raise ValueError(f"Unsupported model_id: {model_id}")
+        if reranker_model_id is not None and reranker_model_id not in reranker_models:
+            raise ValueError(f"Unsupported reranker_model_id: {reranker_model_id}")
+        if rerank_pool_k is not None and rerank_pool_k <= 0:
+            raise ValueError("rerank_pool_k must be > 0")
 
         self.model_id = model_id
         self.dataset = Path(dataset)
-        if model_id == "minilm":
-            self.model = SentenceTransformer(embedding_models[model_id])
-            self.tokenizer = None
-            self.dimension = self.model.get_sentence_embedding_dimension()
-        else:
-            available_memory_gib = _available_memory_gib()
-            if self.device.type == "cpu" and available_memory_gib is not None and available_memory_gib < 2.5:
-                raise RuntimeError(
-                    "The Snowflake embedding model needs more available RAM than this machine currently has. "
-                    f"Detected about {available_memory_gib:.2f} GiB available on CPU. "
-                    "Use model_id='minilm', free up memory, or run on a GPU-enabled machine."
-                )
+        self.test_set = Path(test_set) if test_set is not None else self.dataset.with_name("test.csv")
+        self.model = SentenceTransformer(embedding_models[model_id])
+        self.dimension = self.model.get_sentence_embedding_dimension()
+        self.reranker_model_id = reranker_model_id
+        self.rerank_pool_k = rerank_pool_k
+        self.reranker_model_name = reranker_models.get(reranker_model_id)
+        self._reranker_tokenizer = None
+        self._reranker_model = None
+        self._reranker_device = "cuda" if torch.cuda.is_available() else "cpu"
 
-            self.tokenizer = AutoTokenizer.from_pretrained(embedding_models[model_id])
-            self.model = AutoModel.from_pretrained(
-                embedding_models[model_id],
-                add_pooling_layer=False,
-                trust_remote_code=True,
-                attn_implementation="eager",
-                use_memory_efficient_attention=False,
-                low_cpu_mem_usage=True,
-            )
-            self.model.to(self.device)
-            self.model.eval()
-            self.dimension = self.model.config.hidden_size
+    @property
+    def variant_name(self) -> str:
+        if self.dataset.name in {"retrieval.csv", "test.csv"}:
+            return self.dataset.parent.name
+        return self.dataset.stem
             
     @property
     def collection_name(self):
-        return f"{self.model_id}_{self.dataset.stem}"
+        return f"{self.model_id}_{self.variant_name}"
 
     def initialize_collection(self):
         if self.client.collection_exists(self.collection_name):
@@ -97,29 +80,10 @@ class Retrieval:
             )
         return self.collection_name
     
-    def encode(self, texts: list[str], is_query: bool = False):
-        if self.model_id == "minilm":
-            return self.model.encode(texts, normalize_embeddings=True)
-
-        if is_query:
-            texts = [f"query: {text}" for text in texts]
-
-        tokens = self.tokenizer(
-            texts,
-            padding=True,
-            truncation=True,
-            max_length=256,
-            return_tensors="pt",
-        )
-        tokens = {key: value.to(self.device) for key, value in tokens.items()}
-
-        with torch.no_grad():
-            embeddings = self.model(**tokens)[0][:, 0]
-
-        embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
-        return embeddings.cpu().numpy()
+    def encode(self, texts: list[str]):
+        return self.model.encode(texts, normalize_embeddings=True)
     
-    def store_embeddings(self, batch_size: int = 1):
+    def store_embeddings(self, batch_size: int = 32):
         
         self.initialize_collection()
         
@@ -158,25 +122,98 @@ class Retrieval:
         query_full_prefix: str, 
         top_k: int = 5
     ) -> tuple[dict, list]:
-        
-        qvec = self.encode([query_full_prefix], is_query=True)[0].tolist()
+        qvec = self.encode([query_full_prefix])[0].tolist()
+        retrieval_limit = top_k
+        if self.reranker_model_id and self.rerank_pool_k is not None:
+            retrieval_limit = max(top_k, self.rerank_pool_k)
 
-        res = self.client.query_points(
-            collection_name=self.collection_name,
-            query=qvec,
-            limit=top_k,
-            with_payload=True,
-        )
-        hits = res.points
+        res = None
+        for attempt in range(4):
+            try:
+                res = self.client.query_points(
+                    collection_name=self.collection_name,
+                    query=qvec,
+                    limit=retrieval_limit,
+                    with_payload=True,
+                    timeout=60,
+                )
+                break
+            except Exception as exc:
+                if attempt == 3:
+                    raise
+                print(
+                    f"Qdrant query failed (attempt {attempt + 1}/4): {exc}. Retrying in 10 seconds..."
+                )
+                time.sleep(10)
+
+        hits = list(res.points)
+        rerank_scores: dict[int, float] = {}
+        if self.reranker_model_id and len(hits) > top_k:
+            hits, rerank_scores = self._rerank_hits(query_full_prefix, hits, top_k)
+        else:
+            hits = hits[:top_k]
 
         context = {}
         for rank, h in enumerate(hits, start=1):
             p = h.payload or {}
+            score = rerank_scores.get(int(h.id), float(h.score))
         
             context[f"trace_{rank}"] = {
                 "prefix": p.get("prefix", ""),
                 "prediction": p.get("prediction", ""),
-                "score": round(float(h.score), 4),
+                "score": round(float(score), 4),
             }
 
         return context, hits
+
+    def _ensure_reranker_loaded(self) -> None:
+        if self._reranker_model is not None and self._reranker_tokenizer is not None:
+            return
+        if not self.reranker_model_name:
+            raise ValueError("Reranker requested without a valid reranker model name.")
+
+        self._reranker_tokenizer = AutoTokenizer.from_pretrained(self.reranker_model_name)
+        self._reranker_model = AutoModelForSequenceClassification.from_pretrained(self.reranker_model_name)
+        self._reranker_model = self._reranker_model.to(self._reranker_device)
+        self._reranker_model.eval()
+
+    def _rerank_hits(
+        self,
+        query_full_prefix: str,
+        hits: list,
+        top_k: int,
+    ) -> tuple[list, dict[int, float]]:
+        self._ensure_reranker_loaded()
+
+        pairs = []
+        hit_ids = []
+        for hit in hits:
+            payload = hit.payload or {}
+            candidate_prefix = payload.get("prefix", "")
+            pairs.append((query_full_prefix, candidate_prefix))
+            hit_ids.append(int(hit.id))
+
+        with torch.no_grad():
+            inputs = self._reranker_tokenizer(
+                pairs,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors="pt",
+            )
+            inputs = {k: v.to(self._reranker_device) for k, v in inputs.items()}
+            outputs = self._reranker_model(**inputs)
+            logits = outputs.logits.squeeze(-1)
+            if logits.dim() == 0:
+                logits = logits.unsqueeze(0)
+            scores = logits.detach().cpu().tolist()
+
+        if isinstance(scores, float):
+            scores = [scores]
+
+        ranked = sorted(zip(scores, hits, hit_ids), key=lambda x: x[0], reverse=True)
+        top_ranked = ranked[:top_k]
+
+        reranked_hits = [item[1] for item in top_ranked]
+        rerank_scores = {int(item[2]): float(item[0]) for item in top_ranked}
+        return reranked_hits, rerank_scores
