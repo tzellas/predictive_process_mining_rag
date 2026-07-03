@@ -161,6 +161,7 @@ def discover_log_for_variant(
     gap: int,
     m: int,
     split_mode: str = "trace",
+    trace_cross_dedup: bool = False,
 ) -> Path:
     output_dir = variant_dir_path(
         dataset_xes=original_xes_path,
@@ -168,6 +169,7 @@ def discover_log_for_variant(
         gap=gap,
         m=m,
         split_mode=split_mode,
+        trace_cross_dedup=trace_cross_dedup,
     ).relative_to(REPO_ROOT)
     return discover_log(
         xes_path=train_xes_path,

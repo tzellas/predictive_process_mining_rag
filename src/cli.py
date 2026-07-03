@@ -66,6 +66,7 @@ def preprocess_command(args: argparse.Namespace) -> None:
             test_set_proportion=args.test_set_proportion,
             m=args.m,
             split_mode=args.split_mode,
+            trace_cross_dedup=args.trace_cross_dedup,
         )
 
         discovered_process_path = None
@@ -77,6 +78,7 @@ def preprocess_command(args: argparse.Namespace) -> None:
                 gap=args.gap,
                 m=args.m,
                 split_mode=args.split_mode,
+                trace_cross_dedup=args.trace_cross_dedup,
             )
         elif args.discovery and args.split_mode == "row":
             print("Skipping discovery for row split mode because there is no train-only XES split.")
@@ -160,7 +162,10 @@ def eval_command(args: argparse.Namespace) -> None:
         }
     ]
 
-    results_path = dump_evaluation_results(evaluation_runs, results_path=args.results_path)
+    results_path = dump_evaluation_results(
+        evaluation_runs,
+        results_path=_resolve_path(args.results_path),
+    )
     print(f"Saved evaluation results to {results_path}")
 
 
@@ -176,6 +181,11 @@ def build_parser() -> argparse.ArgumentParser:
     preprocess_parser.add_argument("--trace-identifier", default="case:concept:name")
     preprocess_parser.add_argument("--test-set-proportion", type=float, default=0.3)
     preprocess_parser.add_argument("--split-mode", choices=["trace", "row"], default="trace")
+    preprocess_parser.add_argument(
+        "--trace-cross-dedup",
+        action="store_true",
+        help="For trace split only: remove exact control-flow+label duplicates from test if they already exist in retrieval.",
+    )
     preprocess_parser.add_argument("--shard-output-dir")
     preprocess_parser.add_argument("--no-discovery", dest="discovery", action="store_false")
     preprocess_parser.add_argument("--no-attribute-labels", dest="attribute_labels", action="store_false")
@@ -195,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--reranker-model", choices=["bge"])
     eval_parser.add_argument("--rerank-pool-k", type=int, help="Initial retrieval size before reranking. Must be >= --top-k.")
     eval_parser.add_argument("--run-label", default="cli_evaluation")
-    eval_parser.add_argument("--results-path", default="../data/evaluation_results/evaluation_runs.json")
+    eval_parser.add_argument("--results-path", default="data/evaluation_results/evaluation_runs.json")
     eval_parser.add_argument(
         "--keep-individual-predictions",
         action="store_true",

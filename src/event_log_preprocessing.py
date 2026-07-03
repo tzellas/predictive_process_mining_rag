@@ -3,6 +3,7 @@ import pm4py
 import csv
 import random
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 def read_clean_log(
     filename: str | Path, 
@@ -211,6 +212,7 @@ def _variant_dir_name(
     gap: int,
     m: int,
     split_mode: str = "trace",
+    trace_cross_dedup: bool = False,
 ) -> str:
     variant_name = _variant_file_name(
         base_stem=base_stem,
@@ -220,6 +222,8 @@ def _variant_dir_name(
     ).removesuffix(".csv")
     if split_mode == "row":
         return f"{variant_name}_row"
+    if trace_cross_dedup:
+        return f"{variant_name}_trace_dedup"
     return variant_name
 
 
@@ -248,6 +252,7 @@ def variant_dir_path(
     gap: int,
     m: int,
     split_mode: str = "trace",
+    trace_cross_dedup: bool = False,
 ) -> Path:
     dataset_xes = Path(dataset_xes)
     return (
@@ -259,6 +264,7 @@ def variant_dir_path(
             gap=gap,
             m=m,
             split_mode=split_mode,
+            trace_cross_dedup=trace_cross_dedup,
         )
     )
 
@@ -275,7 +281,11 @@ def split_xes_train_test(
 
     out_dir = Path(output_dir) if output_dir is not None else split_xes_dir(input_xes_path)
     out_dir.mkdir(parents=True, exist_ok=True)
-    train_path, test_path = split_xes_paths(input_xes_path)
+    if output_dir is not None:
+        train_path = out_dir / f"{input_xes_path.stem}_train.xes"
+        test_path = out_dir / f"{input_xes_path.stem}_test.xes"
+    else:
+        train_path, test_path = split_xes_paths(input_xes_path)
 
     trace_open = b"<trace>"
     trace_close = b"</trace>"
@@ -315,10 +325,62 @@ def split_xes_train_test(
             raise ValueError(f"No <trace> elements found in: {path}")
         return bytes(header), trace_count
 
+    def _local_name(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1]
+
+    def _collect_trace_end_timestamp_keys(path: Path) -> list[tuple[int, int]]:
+        trace_end_keys: list[tuple[int, int]] = []
+        current_trace_end_key: int | None = None
+        trace_index = -1
+
+        for event_name, elem in ET.iterparse(path, events=("start", "end")):
+            tag = _local_name(elem.tag)
+
+            if event_name == "start" and tag == "trace":
+                trace_index += 1
+                current_trace_end_key = None
+                continue
+
+            if event_name == "end" and tag == "event":
+                for child in elem:
+                    if _local_name(child.tag) != "date":
+                        continue
+                    if child.attrib.get("key") != "time:timestamp":
+                        continue
+
+                    timestamp_value = child.attrib.get("value")
+                    if timestamp_value is None:
+                        continue
+
+                    timestamp_key = pd.Timestamp(timestamp_value).value
+                    if current_trace_end_key is None or timestamp_key > current_trace_end_key:
+                        current_trace_end_key = timestamp_key
+                    break
+
+                elem.clear()
+                continue
+
+            if event_name == "end" and tag == "trace":
+                trace_end_keys.append(
+                    (
+                        trace_index,
+                        current_trace_end_key if current_trace_end_key is not None else pd.Timestamp.min.value,
+                    )
+                )
+                elem.clear()
+
+        return trace_end_keys
+
     header_bytes, total_traces = _read_header_and_count_traces(input_xes_path)
     test_set_size = int(total_traces * test_set_proportion)
-    rng = random.Random(random_state)
-    test_indices = set(rng.sample(range(total_traces), test_set_size))
+    trace_order_by_end_time = sorted(
+        _collect_trace_end_timestamp_keys(input_xes_path),
+        key=lambda item: (item[1], item[0]),
+    )
+    test_indices = {
+        trace_index
+        for trace_index, _ in trace_order_by_end_time[-test_set_size:]
+    }
 
     for output_path in (train_path, test_path):
         with open(output_path, "wb") as out:
@@ -378,6 +440,8 @@ def _process_single_log_to_csv(
     trace_identifier: str = "case:concept:name",
     m: int = 1,
     split_mode: str = "trace",
+    seen_prefixes: set[tuple[str, str]] | None = None,
+    trace_cross_dedup: bool = False,
 ) -> Path:
     dataset_xes = Path(dataset_xes)
     base_stem = dataset_xes.stem
@@ -402,6 +466,7 @@ def _process_single_log_to_csv(
         gap=gap,
         m=m,
         split_mode=split_mode,
+        trace_cross_dedup=trace_cross_dedup,
     )
     output_csv_path = (
         Path(__file__).resolve().parent.parent
@@ -423,7 +488,7 @@ def _process_single_log_to_csv(
     else:
         shard_paths = [dataset_xes]
 
-    global_seen_prefixes: set[tuple[str, str]] = set()
+    global_seen_prefixes = seen_prefixes if seen_prefixes is not None else set()
     for shard_path in shard_paths:
         df_log = read_clean_log(shard_path, trace_identifier=trace_identifier)
         build_prefixes(
@@ -448,6 +513,7 @@ def process_log(
     test_set_proportion: float = 0.3,
     m: int = 1,
     split_mode: str = "trace",
+    trace_cross_dedup: bool = False,
 ) -> tuple[Path, Path, Path, Path]:
     dataset_xes = Path(dataset_xes)
     if split_mode not in {"trace", "row"}:
@@ -459,6 +525,7 @@ def process_log(
         gap=gap,
         m=m,
         split_mode=split_mode,
+        trace_cross_dedup=trace_cross_dedup,
     )
     retrieval_csv_path = variant_dir / "retrieval.csv"
     test_csv_path = variant_dir / "test.csv"
@@ -474,6 +541,7 @@ def process_log(
             dataset_xes,
             test_set_proportion=test_set_proportion,
         )
+        shared_seen_prefixes = set() if trace_cross_dedup else None
 
         train_csv_tmp = _process_single_log_to_csv(
             dataset_xes=train_xes_path,
@@ -483,6 +551,8 @@ def process_log(
             trace_identifier=trace_identifier,
             m=m,
             split_mode=split_mode,
+            seen_prefixes=shared_seen_prefixes,
+            trace_cross_dedup=trace_cross_dedup,
         )
         test_csv_tmp = _process_single_log_to_csv(
             dataset_xes=test_xes_path,
@@ -492,6 +562,8 @@ def process_log(
             trace_identifier=trace_identifier,
             m=m,
             split_mode=split_mode,
+            seen_prefixes=shared_seen_prefixes,
+            trace_cross_dedup=trace_cross_dedup,
         )
 
         train_csv_tmp.replace(retrieval_csv_path)
@@ -506,6 +578,7 @@ def process_log(
         trace_identifier=trace_identifier,
         m=m,
         split_mode=split_mode,
+        trace_cross_dedup=trace_cross_dedup,
     )
 
     df = pd.read_csv(full_csv_tmp)

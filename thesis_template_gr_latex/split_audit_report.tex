@@ -1,0 +1,127 @@
+% !TeX program = xelatex
+\documentclass[version=last
+        ,DIV=12
+        ,BCOR=12mm
+        ,twoside=false
+        ,twocolumn=false
+        ,open=any
+        ,headinclude=false
+        ,footinclude=false
+        ,chapterprefix=true
+        ,draft=false
+        ,fontsize=11pt
+        ,headings=big
+        ,headsepline=true
+        ,footsepline=false
+        ,titlepage=false
+        ,parskip=false
+        ,captions=tableheading
+]{scrbook}
+
+\input{Preamble}
+
+\begin{document}
+\justifying
+\pagestyle{scrheadings}
+\selectlanguage{english}
+\leftskip=0pt
+\rightskip=0pt
+\spaceskip=0pt
+\xspaceskip=0pt
+\parfillskip=0pt plus 1fil
+\hyphenpenalty=10000
+\exhyphenpenalty=10000
+\pretolerance=10000
+\tolerance=2000
+
+\begin{center}
+{\rmfamily\bfseries\fontsize{18}{22}\selectfont
+Split Strategy and Deduplication Audit\par}
+\end{center}
+\vspace{0.8\baselineskip}
+
+\section*{What the Source Paper Pipeline Did Wrong}
+\noindent
+The main methodological problem in the source paper's released pipeline is
+that it does not cleanly separate retrieval data from evaluation data in the
+strict predictive process monitoring sense. In practice, the retrieval store
+is built in a way that allows prefixes coming from the same original log
+population to remain available when the test examples are later formed. This
+makes the setup closer to a retrieval-oriented experiment than to a strict
+held-out case-level benchmark.
+
+\indent A second problem is that deduplication is too weak. It is applied in a
+way that still allows effectively overlapping examples to survive across the
+retrieval side and the test side. As a result, the final evaluation can be
+helped by exact or near-exact repetitions that would not be acceptable in a
+stricter benchmark protocol.
+
+\indent A third problem is that the released implementation appears to define
+the label incorrectly in the prefix construction stage. Instead of always
+using the next unseen activity after the prefix, it can associate the example
+with the last activity already contained in the prefix itself. This creates a
+supervision inconsistency and weakens the reliability of the reported setup.
+
+\indent For these reasons, the released source-paper pipeline should not be
+treated as a clean benchmark reference for strict trace-level predictive
+process monitoring, even though the general research idea remains useful and
+relevant.
+
+\section*{What the Current Thesis Pipeline Does Right Now}
+\noindent
+The current thesis pipeline is methodologically cleaner because it explicitly
+separates two different experimental settings instead of mixing them. The
+first is a row-level split, which is suitable for studying a retrieval-heavy
+setting where very similar historical prefixes may still be useful. The
+second is a trace-level split, which is the proper setting when the goal is
+to approximate case-level generalization.
+
+\indent In the current thesis pipeline, prefix construction and evaluation are
+internally consistent. The target of each example is the next activity after
+the observed prefix, and the retrieval collections are tied to the correct
+dataset variants. The naming of the vector collections is also structurally
+safe, so different preprocessed datasets are not accidentally mixed under the
+same identifier.
+
+\indent The present thesis pipeline is not yet the strictest literature-style
+protocol, because the trace split is currently random rather than
+chronological and because deduplication is not enforced globally across the
+final retrieval and test sides. However, these are limitations of evaluation
+strictness, not logical implementation errors. In other words, the current
+pipeline is coherent and interpretable, and it is already cleaner than the
+released source-paper implementation on the key leakage-related issues.
+
+\indent Therefore, the correct presentation is the following. The row-level
+split should be described as a retrieval-oriented experimental condition. The
+trace-level split should be described as the thesis pipeline's proper
+case-level evaluation mode. If an even stricter benchmark is desired later,
+the natural next step would be a chronological trace split aligned more
+closely with common predictive process monitoring practice~\ieeecite{bib:tax2017}{1},
+\ieeecite{bib:processtransformer2021}{2}, \ieeecite{bib:teinemaa2018}{3}.
+
+\begin{thebibliography}{9}
+
+\bibitem{tax2017}\label{bib:tax2017}
+N.~Tax, I.~Verenich, M.~La~Rosa, and M.~Dumas,
+``Predictive Business Process Monitoring with LSTM Neural Networks,''
+\textit{Lecture Notes in Computer Science},
+vol.~10253, pp.~477--492, 2017.
+[Online]. Available: \url{https://arxiv.org/abs/1612.02130}
+
+\bibitem{processtransformer2021}\label{bib:processtransformer2021}
+Z.~A.~Bukhsh, A.~Saeed, and R.~M.~Dijkman,
+``ProcessTransformer: Predictive Business Process Monitoring with Transformer Network,''
+\textit{Lecture Notes in Computer Science},
+vol.~12875, pp.~129--145, 2021.
+[Online]. Available: \url{https://arxiv.org/abs/2104.00721}
+
+\bibitem{teinemaa2018}\label{bib:teinemaa2018}
+I.~Teinemaa, M.~Dumas, M.~La Rosa, and F.~M.~Maggi,
+``Outcome-Oriented Predictive Process Monitoring: Review and Benchmark,''
+\textit{ACM Transactions on Knowledge Discovery from Data},
+vol.~13, no.~2, pp.~1--57, 2019.
+[Online]. Available: \url{https://arxiv.org/abs/1707.06766}
+
+\end{thebibliography}
+
+\end{document}

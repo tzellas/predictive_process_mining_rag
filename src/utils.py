@@ -93,7 +93,7 @@ def append_report_history(
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
     if report_path.exists():
-        with open(report_path, encoding="utf-8") as f:
+        with open(report_path, encoding="utf-8-sig") as f:
             history = json.load(f)
     else:
         history = {}
@@ -121,7 +121,7 @@ def dump_evaluation_results(
     results_path.parent.mkdir(parents=True, exist_ok=True)
 
     if results_path.exists():
-        with open(results_path, "r", encoding="utf-8") as f:
+        with open(results_path, "r", encoding="utf-8-sig") as f:
             saved_runs = json.load(f)
     else:
         saved_runs = {}

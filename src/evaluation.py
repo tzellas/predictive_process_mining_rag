@@ -72,7 +72,37 @@ def compute_classification_metrics(y_true: list[str], y_pred: list[str | None]) 
 
 
 def prefix_length(prefix: str) -> int:
-    prefix_without_values = prefix.split(" - Values: ", 1)[0]
+    parts: list[str] = []
+    token = " - Values: {"
+    pos = 0
+
+    while True:
+        start = prefix.find(token, pos)
+        if start == -1:
+            parts.append(prefix[pos:])
+            break
+
+        parts.append(prefix[pos:start])
+        brace_pos = start + len(" - Values: ")
+        depth = 0
+        end = None
+
+        for i in range(brace_pos, len(prefix)):
+            if prefix[i] == "{":
+                depth += 1
+            elif prefix[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+
+        if end is None:
+            parts.append(prefix[start:])
+            break
+
+        pos = end
+
+    prefix_without_values = "".join(parts)
     activities = [activity.strip() for activity in prefix_without_values.split(",") if activity.strip()]
     return len(activities)
 

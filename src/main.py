@@ -25,6 +25,7 @@ def main() -> None:
             base=base,
             gap=gap,
             m=m,
+            trace_cross_dedup=False,
         )
 
         discovered_process_path = discover_log_for_variant(
@@ -33,6 +34,7 @@ def main() -> None:
             base=base,
             gap=gap,
             m=m,
+            trace_cross_dedup=False,
         )
 
         dataset_dir = retrieval_csv_path.parent

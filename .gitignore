@@ -6,3 +6,7 @@ data/
 .env
 sources_and_relevant_content/
 ppm_venv_linux/
+.vscode/
+deliverables/
+tmp_paper.txt
+tmp_paper_sciencedirect.html
