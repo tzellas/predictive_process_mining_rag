@@ -168,7 +168,7 @@ def build_prefixes(
                     f"{records[i+1]['org:role']}"
                 )
 
-            dedup_key = (deduplication_list, prediction)
+            dedup_key = deduplication_list
 
             if dedup_key in seen_prefixes:
                 continue
@@ -434,7 +434,6 @@ def split_xes_train_test(
 
 def _process_single_log_to_csv(
     dataset_xes: str | Path,
-    shard_output_dir: str | Path | None = None,
     base: int = 1,
     gap: int = 3,
     trace_identifier: str = "case:concept:name",
@@ -445,20 +444,6 @@ def _process_single_log_to_csv(
 ) -> Path:
     dataset_xes = Path(dataset_xes)
     base_stem = dataset_xes.stem
-
-    num_shards = 1
-    dataset_size = dataset_xes.stat().st_size / (1024 * 1024)
-
-    if dataset_size > 300:
-        print(f"Dataset size is {dataset_size} mb. Initiating sharding...")
-        shard_output_dir = (
-            Path(__file__).resolve().parent.parent
-            / "data"
-            / "xes_logs"
-            / f"{base_stem}_Shards"
-        )
-        num_shards = int(dataset_size // 100) + 2
-        print(f"{num_shards} shards will be at {shard_output_dir}.")
 
     variant_dir_name = _variant_dir_name(
         base_stem=base_stem.removesuffix("_train").removesuffix("_test"),
@@ -479,34 +464,23 @@ def _process_single_log_to_csv(
     if output_csv_path.exists():
         output_csv_path.unlink()
 
-    if num_shards != 1:
-        shard_paths = shard_log(
-            input_xes_path=dataset_xes,
-            num_shards=num_shards,
-            output_dir=shard_output_dir,
-        )
-    else:
-        shard_paths = [dataset_xes]
-
     global_seen_prefixes = seen_prefixes if seen_prefixes is not None else set()
-    for shard_path in shard_paths:
-        df_log = read_clean_log(shard_path, trace_identifier=trace_identifier)
-        build_prefixes(
-            output_path=output_csv_path,
-            df_log=df_log,
-            trace_identifier=trace_identifier,
-            base=base,
-            gap=gap,
-            seen_prefixes=global_seen_prefixes,
-            m=m,
-        )
+    df_log = read_clean_log(dataset_xes, trace_identifier=trace_identifier)
+    build_prefixes(
+        output_path=output_csv_path,
+        df_log=df_log,
+        trace_identifier=trace_identifier,
+        base=base,
+        gap=gap,
+        seen_prefixes=global_seen_prefixes,
+        m=m,
+    )
 
     return output_csv_path
 
 
 def process_log(
     dataset_xes: str | Path,
-    shard_output_dir: str | Path | None = None,
     base: int = 1,
     gap: int = 3,
     trace_identifier: str = "case:concept:name",
@@ -545,7 +519,6 @@ def process_log(
 
         train_csv_tmp = _process_single_log_to_csv(
             dataset_xes=train_xes_path,
-            shard_output_dir=shard_output_dir,
             base=base,
             gap=gap,
             trace_identifier=trace_identifier,
@@ -556,7 +529,6 @@ def process_log(
         )
         test_csv_tmp = _process_single_log_to_csv(
             dataset_xes=test_xes_path,
-            shard_output_dir=shard_output_dir,
             base=base,
             gap=gap,
             trace_identifier=trace_identifier,
@@ -572,7 +544,6 @@ def process_log(
 
     full_csv_tmp = _process_single_log_to_csv(
         dataset_xes=dataset_xes,
-        shard_output_dir=shard_output_dir,
         base=base,
         gap=gap,
         trace_identifier=trace_identifier,
@@ -595,133 +566,3 @@ def process_log(
     full_csv_tmp.unlink(missing_ok=True)
 
     return retrieval_csv_path, test_csv_path, None, None
-
-
-def shard_log(
-    input_xes_path: str | Path,
-    num_shards: int,
-    output_dir: str | Path | None = None,
-) -> list[Path]:
-    """
-    Split an XES log into `num_shards` valid XES files with near-equal trace counts.
-
-    Output file names follow: <input_stem>_1.xes, <input_stem>_2.xes, ... <input_stem>_N.xes
-    """
-    if num_shards <= 0:
-        raise ValueError("num_shards must be > 0")
-
-    input_xes_path = Path(input_xes_path)
-    if not input_xes_path.exists():
-        raise FileNotFoundError(f"Input XES not found: {input_xes_path}")
-
-    out_dir = Path(output_dir) if output_dir else input_xes_path.parent
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    trace_open = b"<trace>"
-    trace_close = b"</trace>"
-    log_close = b"</log>\n"
-
-    def _read_header_and_count_traces(path: Path, block_size: int = 1024 * 1024) -> tuple[bytes, int]:
-        header = bytearray()
-        found_first_trace = False
-        trace_count = 0
-        prev_tail = b""
-
-        with open(path, "rb") as f:
-            while True:
-                chunk = f.read(block_size)
-                if not chunk:
-                    break
-                data = prev_tail + chunk
-
-                if not found_first_trace:
-                    idx = data.find(trace_open)
-                    if idx != -1:
-                        found_first_trace = True
-                        header.extend(data[:idx])
-                    else:
-                        # Keep only a short overlap in case "<trace>" spans chunks.
-                        keep = len(trace_open) - 1
-                        if len(data) > keep:
-                            header.extend(data[:-keep])
-                            prev_tail = data[-keep:]
-                        else:
-                            prev_tail = data
-                        continue
-
-                trace_count += data.count(trace_open)
-                prev_tail = data[-(len(trace_open) - 1):] if len(data) >= (len(trace_open) - 1) else data
-
-        if not found_first_trace:
-            raise ValueError(f"No <trace> elements found in: {path}")
-        return bytes(header), trace_count
-
-    header_bytes, total_traces = _read_header_and_count_traces(input_xes_path)
-    q, r = divmod(total_traces, num_shards)
-    shard_sizes = [q + 1 if i < r else q for i in range(num_shards)]
-
-    shard_paths: list[Path] = [out_dir / f"{input_xes_path.stem}_{i}.xes" for i in range(1, num_shards + 1)]
-
-    # Initialize all shard files with header so each output remains valid XES.
-    for p in shard_paths:
-        with open(p, "wb") as out:
-            out.write(header_bytes)
-
-    current_shard_idx = 0
-    traces_in_current_shard = 0
-    buffer = b""
-    started = False
-
-    with open(input_xes_path, "rb") as f:
-        while True:
-            chunk = f.read(1024 * 1024)
-            if not chunk:
-                break
-            buffer += chunk
-
-            while True:
-                if not started:
-                    first_trace_idx = buffer.find(trace_open)
-                    if first_trace_idx == -1:
-                        # Keep small tail for split tag detection and continue reading.
-                        keep = len(trace_open) - 1
-                        buffer = buffer[-keep:] if len(buffer) > keep else buffer
-                        break
-                    buffer = buffer[first_trace_idx:]
-                    started = True
-
-                start_idx = buffer.find(trace_open)
-                if start_idx == -1:
-                    break
-                end_idx = buffer.find(trace_close, start_idx)
-                if end_idx == -1:
-                    # Keep from start_idx onward because trace may be incomplete.
-                    buffer = buffer[start_idx:]
-                    break
-
-                trace_block = buffer[start_idx:end_idx + len(trace_close)]
-                if current_shard_idx >= len(shard_paths):
-                    # Safety guard; should not happen if counts are consistent.
-                    break
-
-                with open(shard_paths[current_shard_idx], "ab") as out:
-                    out.write(trace_block)
-
-                traces_in_current_shard += 1
-                buffer = buffer[end_idx + len(trace_close):]
-
-                if traces_in_current_shard == shard_sizes[current_shard_idx]:
-                    current_shard_idx += 1
-                    traces_in_current_shard = 0
-                    if current_shard_idx >= len(shard_paths):
-                        break
-
-            if current_shard_idx >= len(shard_paths):
-                break
-
-    # Close all shards with </log>.
-    for p in shard_paths:
-        with open(p, "ab") as out:
-            out.write(log_close)
-
-    return shard_paths

@@ -134,7 +134,6 @@ def dump_evaluation_results(
         run_label = run.get("run_label")
         top_k = run.get("top_k")
         max_rows = run.get("max_rows")
-        use_process_guidance = run.get("use_process_guidance")
         reranker_model = run.get("reranker_model")
         rerank_pool_k = run.get("rerank_pool_k")
 
@@ -146,7 +145,6 @@ def dump_evaluation_results(
                 prompt_variant=report.get("prompt_variant"),
                 top_k=top_k if top_k is not None else report.get("top_k"),
                 max_rows=max_rows,
-                use_process_guidance=use_process_guidance,
                 reranker_model=reranker_model if reranker_model is not None else report.get("reranker_model"),
                 rerank_pool_k=rerank_pool_k if rerank_pool_k is not None else report.get("rerank_pool_k"),
             )
@@ -194,7 +192,6 @@ def _build_evaluation_config(
     prompt_variant: str | None,
     top_k: int | None,
     max_rows: int | None,
-    use_process_guidance: bool | None,
     reranker_model: str | None = None,
     rerank_pool_k: int | None = None,
 ) -> dict:
@@ -210,7 +207,6 @@ def _build_evaluation_config(
         "model_id": model_id,
         "llm": llm,
         "prompt_variant": prompt_variant,
-        "use_process_guidance": use_process_guidance,
         "reranker_model": reranker_model,
         "rerank_pool_k": rerank_pool_k,
         "split_type": split_type,
@@ -228,7 +224,6 @@ def _evaluation_config_key(config: dict) -> str:
         f"model_id={config.get('model_id')}|"
         f"llm={config.get('llm')}|"
         f"prompt_variant={config.get('prompt_variant')}|"
-        f"use_process_guidance={config.get('use_process_guidance')}|"
         f"reranker_model={config.get('reranker_model')}|"
         f"rerank_pool_k={config.get('rerank_pool_k')}"
     )
@@ -242,7 +237,6 @@ def _migrate_legacy_evaluation_runs(legacy_runs: list[dict]) -> dict:
         run_label = run.get("run_label")
         top_k = run.get("top_k")
         max_rows = run.get("max_rows")
-        use_process_guidance = run.get("use_process_guidance")
         reranker_model = run.get("reranker_model")
         rerank_pool_k = run.get("rerank_pool_k")
 
@@ -254,7 +248,6 @@ def _migrate_legacy_evaluation_runs(legacy_runs: list[dict]) -> dict:
                 prompt_variant=report.get("prompt_variant"),
                 top_k=top_k if top_k is not None else report.get("top_k"),
                 max_rows=max_rows,
-                use_process_guidance=use_process_guidance,
                 reranker_model=reranker_model if reranker_model is not None else report.get("reranker_model"),
                 rerank_pool_k=rerank_pool_k if rerank_pool_k is not None else report.get("rerank_pool_k"),
             )

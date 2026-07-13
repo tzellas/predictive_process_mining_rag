@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from event_log_preprocessing import process_log
-from process_discovery import discover_log_for_variant
 from retrieval import Retrieval
 from utils import build_attribute_labels_json
 
@@ -20,17 +19,8 @@ def main() -> None:
 
     for dataset_xes_path in dataset_xes_paths:
         print(f"Processing {dataset_xes_path.name} with b={base}, g={gap}, m={m}")
-        retrieval_csv_path, test_csv_path, train_xes_path, _ = process_log(
+        retrieval_csv_path, test_csv_path, _, _ = process_log(
             dataset_xes=dataset_xes_path,
-            base=base,
-            gap=gap,
-            m=m,
-            trace_cross_dedup=False,
-        )
-
-        discovered_process_path = discover_log_for_variant(
-            train_xes_path=train_xes_path,
-            original_xes_path=dataset_xes_path,
             base=base,
             gap=gap,
             m=m,
@@ -51,14 +41,12 @@ def main() -> None:
 
         print(f"retrieval.csv: {retrieval_csv_path}")
         print(f"test.csv: {test_csv_path}")
-        print(f"discovered_process.txt: {discovered_process_path}")
         print(f"attribute_labels.json: {labels_path}")
         print()
 
     # Previous evaluation main:
     # top_k = 5
     # max_rows = 300
-    # use_process_guidance = False
     # llm_model = "gpt-4o-mini"
     # prompt_variant = "nano_4o_mini"
     #
@@ -85,7 +73,6 @@ def main() -> None:
     #     retrieval_setups,
     #     top_k=top_k,
     #     max_rows=max_rows,
-    #     use_process_guidance=use_process_guidance,
     #     llm_model=llm_model,
     #     prompt_variant=prompt_variant,
     # )
@@ -100,7 +87,6 @@ def main() -> None:
     #         "datasets": [report["dataset"] for report in evaluation_report["dataset_reports"]],
     #         "top_k": top_k,
     #         "max_rows": max_rows,
-    #         "use_process_guidance": use_process_guidance,
     #         "llm": llm_model,
     #         "prompt_variant": prompt_variant,
     #         "reports": evaluation_report["dataset_reports"],

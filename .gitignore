@@ -1,6 +1,12 @@
 ppm_venv/
 __pycache__/
 *.pyc
+*.aux
+*.log
+*.toc
+*.synctex.gz
+*.fdb_latexmk
+*.fls
 qdrant_data/
 data/
 .env
@@ -10,3 +16,6 @@ ppm_venv_linux/
 deliverables/
 tmp_paper.txt
 tmp_paper_sciencedirect.html
+thesis_template_gr_latex/
+thesis/*
+!thesis/final_thesis.pdf
