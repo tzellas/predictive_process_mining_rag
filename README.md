@@ -25,7 +25,8 @@ predictive_process_mining_rag/
 |   |-- evaluation.py              # LLM-based evaluation and metrics
 |   |-- llm_api.py                 # OpenAI/Ollama request layer
 |   `-- utils.py                   # Reporting and helper utilities
-|-- thesis_template_gr_latex/      # Thesis manuscript and figures
+|-- thesis/
+|   `-- final_thesis.pdf           # Final thesis PDF for GitHub distribution
 |-- requirements.txt
 `-- README.md
 ```
@@ -150,7 +151,6 @@ data/xes_logs/
 Examples already referenced by the codebase include:
 
 - `BPI_Challenge_2012.xes`
-- `BPI_Challenge_2019.xes`
 - `BPI_Challenge_2020_InternationalDeclarations.xes`
 - `HospitalBilling.xes`
 - `Sepsis.xes`
