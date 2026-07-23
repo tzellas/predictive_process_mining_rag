@@ -17,5 +17,4 @@ deliverables/
 tmp_paper.txt
 tmp_paper_sciencedirect.html
 thesis_template_gr_latex/
-thesis/*
-!thesis/final_thesis.pdf
+thesis/
